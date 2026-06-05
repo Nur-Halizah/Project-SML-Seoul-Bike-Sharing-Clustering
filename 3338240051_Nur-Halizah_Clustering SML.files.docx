@@ -1,0 +1,335 @@
+---
+title: "Perbandingan Metode Clustering"
+subtitle: "Analisis Data Seoul Bike Sharing 
+— Nur Halizah (3338240051)"
+author:
+- "Nur Halizah (3338240051)"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: tango
+    code_folding: show
+    df_print: paged
+    fig_width: 10
+    fig_height: 6
+    number_sections: true
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+<style>
+body {
+  text-align: justify;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  comment = ""
+)
+```
+
+---
+
+# Pendahuluan
+
+Clustering merupakan salah satu metode dalam unsupervised learning yang digunakan untuk mengelompokkan objek berdasarkan tingkat kemiripan karakteristiknya, tanpa memerlukan label kelas yang sudah diketahui sebelumnya. Berbeda dengan metode klasifikasi, clustering tidak memiliki acuan jawaban yang pasti sehingga termasuk ke dalam teknik tanpa pengawasan (unsupervised). Oleh karena itu, proses evaluasi terhadap hasil clustering menjadi sangat penting untuk menilai apakah kelompok yang terbentuk sudah bermakna atau belum.
+
+Dalam laporan ini, digunakan Dataset **Seoul Bike Sharing** tersedia secara publik di **UCI Machine Learning Repository** dan dapat diakses melalui: https://archive.ics.uci.edu/dataset/560/seoul+bike+sharing+demand. Dataset ini berisi informasi mengenai jumlah penyewaan sepeda di Kota Seoul, Korea Selatan, yang dipengaruhi oleh berbagai faktor cuaca dan lingkungan, seperti suhu, kelembapan udara, kecepatan angin, curah hujan, curah salju, visibilitas, musim, dan hari libur. 
+
+Dari dataset tersebut, hanya diambil sebanyak 199 sampel yang digunakan untuk menganalisis pola pengelompokan berdasarkan karakteristik kondisi cuaca saat penyewaan sepeda berlangsung. Ada 2 pengelompokkan clustering yaitu : 
+
+- K-Means Clustering: merupakan metode berbasis jarak yang mengelompokkan data ke dalam sejumlah k cluster dengan cara meminimalkan jarak antara setiap objek dengan pusat cluster (centroid).
+- Model-Based Clustering (Mclust): adalah metode yang menggunakan pendekatan probabilistik dengan asumsi bahwa data berasal dari kombinasi beberapa distribusi Gaussian (Gaussian Mixture Model/GMM), sehingga metode ini lebih fleksibel dalam menangani bentuk cluster yang tidak beraturan atau tidak simetris.
+
+Tujuan dari analisis ini adalah sebagai berikut:
+
+1. Mengaplikasikan dua metode clustering pada data nyata
+2. Membandingkan hasil pengelompokan yang dihasilkan oleh masing-masing metode
+3. Mengevaluasi kualitas cluster menggunakan kriteria internal (Silhouette Width), mengingat data yang digunakan tidak memiliki label kelas
+
+---
+
+# Load Packages
+
+```{r load-packages}
+library(readxl)     # membaca file Excel
+library(mclust)     # Model-Based clustering (GMM)
+library(cluster)    # fungsi silhouette()
+library(factoextra) # visualisasi clustering dan elbow plot
+library(ggplot2)    # visualisasi umum
+```
+
+Setiap package memiliki peran spesifik dalam analisis ini:
+
+- `readxl` digunakan untuk mengimpor data dari format `.xlsx` ke dalam R.
+- `mclust` menyediakan fungsi `Mclust()` untuk clustering berbasis Gaussian Mixture Model, yang secara otomatis memilih model terbaik berdasarkan kriteria BIC (*Bayesian Information Criterion*).
+- `cluster` menyediakan fungsi `silhouette()` untuk menghitung nilai silhouette tiap observasi sebagai ukuran kualitas cluster.
+- `factoextra` memudahkan pembuatan visualisasi hasil clustering dan plot elbow secara ringkas.
+- `ggplot2` digunakan untuk menghasilkan grafik yang lebih informatif dan estetis.
+
+---
+
+# Input Data
+
+```{r input-data}
+data_raw <- read_excel("C:/Users/ASUS/OneDrive/Praktikum Semester 4/data body fat.xlsx")
+
+# 4 variabel numerik kondisi cuaca untuk clustering
+data <- data_raw[, c("Temperature(°C)", "Humidity(%)",
+                     "Wind speed (m/s)", "Visibility (10m)")]
+
+# Rename kolom 
+colnames(data) <- c("Suhu", "Kelembaban", "KecAngin", "Visibilitas")
+
+cat("Dimensi data:", nrow(data), "baris x", ncol(data), "kolom\n\n")
+head(data)
+```
+
+Dataset yang digunakan terdiri dari 199 observasi dengan 4 variabel numerik kondisi cuaca, yaitu:
+
+| Variabel | Keterangan | Satuan |
+|---|---|---|
+| Suhu | Temperatur udara | °C |
+| Kelembaban | Kelembaban relatif udara | % |
+| KecAngin | Kecepatan angin | m/s |
+| Visibilitas | Jarak pandang | 10m |
+
+Keempat variabel tersebut dipilih karena mampu merepresentasikan variasi kondisi lingkungan dari waktu ke waktu dan berpotensi menghasilkan pola pengelompokan yang bermakna, seperti kondisi cuaca panas dan kering, dingin berkabut, maupun berangin. Sementara itu, variabel seperti Hour dan Rented Bike Count tidak disertakan dalam analisis karena keduanya tidak menggambarkan kondisi cuaca, melainkan lebih berkaitan dengan aspek waktu dan variabel respons.
+
+---
+
+# Standarisasi Data
+
+Sebelum clustering dilakukan, data perlu **distandarisasi menggunakan z-score** melalui fungsi `scale()`. Standarisasi ini mengubah setiap variabel sehingga memiliki rata-rata = 0 dan simpangan baku = 1.
+
+```{r standarisasi}
+data_scaled <- scale(data)
+
+cat("Ringkasan data setelah standarisasi:\n")
+summary(as.data.frame(data_scaled))
+```
+
+Alasan standarisasi diperlukan: skala antar variabel sangat berbeda misalnya Suhu berkisar antara -17°C hingga 7°C, sedangkan Visibilitas bisa mencapai 2000 (satuan 10m). Tanpa standarisasi, variabel dengan skala besar akan mendominasi perhitungan jarak sehingga clustering menjadi tidak adil. Setelah standarisasi, terlihat bahwa seluruh variabel memiliki nilai minimum, maksimum, dan median yang sebanding.
+
+---
+
+# Penentuan Jumlah Cluster Optimal
+
+Sebelum melakukan analisis K-Means, langkah awal yang perlu dilakukan adalah menentukan jumlah cluster k yang paling optimal. Salah satu metode yang umum digunakan untuk tujuan ini adalah Elbow Method, yaitu dengan memvisualisasikan hubungan antara jumlah cluster k dan nilai Total Within Sum of Squares (WSS), yang merepresentasikan total variasi data di dalam masing-masing cluster.
+
+```{r elbow-plot}
+fviz_nbclust(data_scaled, kmeans, method = "wss") +
+  labs(title = "Elbow Method – Penentuan Jumlah Cluster Optimal",
+       x = "Jumlah Cluster (k)",
+       y = "Total Within Sum of Squares (WSS)") +
+  theme_bw()
+```
+
+**Interpretasi:** Berdasarkan grafik Elbow Method, jumlah cluster optimal diperkirakan berada pada k = 3. Hal ini terlihat dari penurunan nilai Within Sum of Squares (WSS) yang cukup tajam dari k = 1 hingga k = 3, kemudian mulai melandai setelahnya. Kondisi tersebut menunjukkan bahwa penambahan cluster setelah 3 kelompok tidak lagi memberikan penurunan WSS yang signifikan. Oleh karena itu, penggunaan 3 cluster dianggap paling optimal karena mampu memberikan keseimbangan antara kualitas pengelompokan dan kompleksitas model.
+
+---
+
+# Metode Clustering
+
+## K-Means Clustering
+
+```{r kmeans}
+set.seed(42)
+km_result <- kmeans(data_scaled, centers = 3, nstart = 25)
+
+# Tambahkan label cluster ke data asli
+data$Cluster_KM <- as.factor(km_result$cluster)
+
+cat("Ukuran tiap cluster (K-Means):\n")
+table(data$Cluster_KM)
+```
+
+Fungsi `kmeans()` dijalankan dengan parameter:
+
+- `centers = 3`: jumlah cluster ditetapkan 3 sesuai hasil elbow method
+- `nstart = 25`: algoritma diulang 25 kali dengan titik awal (*centroid*) acak yang berbeda, dan hasil terbaik (WSS terkecil) yang dipilih ini penting untuk menghindari hasil yang terjebak di *local optimum*
+- `set.seed(42)`: memastikan hasil dapat direproduksi
+
+**Interpretasi ukuran cluster:** Distribusi anggota ke tiga cluster menunjukkan apakah terbentuk kelompok yang relatif seimbang atau tidak. Ketidakseimbangan ekstrem (misalnya satu cluster sangat besar) bisa mengindikasikan bahwa data memiliki struktur yang tidak simetris.
+
+```{r plot-kmeans}
+fviz_cluster(km_result, data = data_scaled,
+             palette = c("#E74C3C", "#2ECC71", "#3498DB"),
+             ellipse.type = "norm",
+             ggtheme = theme_bw(),
+             main = "K-Means Clustering (k = 3)")
+```
+
+**Interpretasi plot:** Visualisasi menggunakan dua komponen utama hasil PCA (*Principal Component Analysis*) untuk merepresentasikan data 4 dimensi ke dalam bidang 2D. Elips menggambarkan sebaran tiap cluster. Cluster yang **terpisah jelas dan tidak saling tumpang tindih** menunjukkan pengelompokan yang baik. Jika elips banyak yang bertampalan, berarti batas antar cluster kurang tegas.
+
+- Cluster dengan warna **merah** cenderung mewakili kondisi cuaca tertentu (misalnya: suhu rendah, visibilitas tinggi)
+- Cluster dengan warna **hijau** kondisi menengah
+- Cluster dengan warna **biru** kondisi cuaca ekstrem lainnya
+
+---
+
+## Model-Based Clustering (Mclust)
+
+```{r mclust}
+gmm_result <- Mclust(data_scaled, G = 3)
+
+# Tambahkan label cluster ke data asli
+data$Cluster_GM <- as.factor(gmm_result$classification)
+
+cat("Model terpilih:", gmm_result$modelName, "\n")
+cat("BIC model terpilih:", round(gmm_result$bic, 2), "\n\n")
+cat("Ukuran tiap cluster (Model-Based):\n")
+table(data$Cluster_GM)
+```
+
+Fungsi `Mclust()` dari package `mclust` menerapkan *Gaussian Mixture Model* (GMM), yaitu model probabilistik yang mengasumsikan bahwa data merupakan campuran dari beberapa distribusi Gaussian. Setiap observasi diberikan **probabilitas keanggotaan** ke setiap cluster, bukan penugasan keras seperti K-Means.
+
+Parameter `G = 3` menetapkan jumlah komponen Gaussian sebanyak 3 agar perbandingan dengan K-Means setara. Output penting yang perlu diperhatikan:
+
+- **Model Name**: kode model kovarians yang dipilih (misalnya `EEE` = *equal volume, equal shape, equal orientation*; `VVV` = semua berbeda). Model ini dipilih otomatis berdasarkan nilai BIC tertinggi.
+- **BIC**: semakin tinggi BIC (atau semakin tidak negatif), semakin baik model dalam menjelaskan struktur data.
+
+```{r plot-mclust}
+fviz_cluster(list(data = data_scaled, cluster = gmm_result$classification),
+             palette = c("#E74C3C", "#2ECC71", "#3498DB"),
+             ellipse.type = "norm",
+             ggtheme = theme_bw(),
+             main = "Model-Based Clustering / Mclust (G = 3)")
+```
+
+**Interpretasi plot:** Plot hasil Model-Based Clustering (Mclust) dengan 3 cluster (G = 3) menunjukkan bahwa data terbagi menjadi tiga kelompok yang berbeda. Pemisahan cluster terutama dipengaruhi oleh Dimensi 1 (56,2%), sedangkan Dimensi 2 (27,1%) membantu memperjelas perbedaan antar kelompok. Secara keseluruhan, kedua dimensi mampu menjelaskan sekitar 83,3% variasi data.
+
+- Cluster 1 (merah) memiliki persebaran paling luas sehingga menunjukkan karakteristik yang lebih beragam (heterogen) dan sedikit bertumpang tindih dengan cluster 2 (hijau), menandakan adanya kemiripan pada beberapa observasi. 
+- Cluster 2 berada di sisi kiri plot dengan penyebaran cukup luas pada dimensi kedua. 
+- Cluster 3 (biru) tampak terpisah jelas dari kelompok lain dengan persebaran lebih rapat, yang menunjukkan bahwa anggotanya lebih seragam (homogen) dan memiliki karakteristik yang paling berbeda dibanding cluster lainnya.
+
+---
+
+# Validasi Cluster – Kriteria Internal
+
+Karena dataset tidak memiliki label kelas yang diketahui sebelumnya (*gold standard*), tidak dapat digunakan kriteria eksternal seperti Cluster Accuracy atau Rand Index. Oleh karena itu, validasi dilakukan menggunakan **kriteria internal**, yaitu **Silhouette Width** (Rousseeuw, 1987).
+
+Silhouette Width mengukur dua hal sekaligus: **kompaktness** (seberapa rapat objek dalam satu cluster) dan **separasi** (seberapa jauh objek dari cluster lain). Nilai silhouette $s(i)$ untuk setiap objek $i$ dihitung sebagai:
+
+$$s(i) = \frac{b_i - a_i}{\max(a_i, b_i)}$$
+
+di mana:
+
+- $a_i$ = rata-rata jarak objek $i$ ke semua objek **dalam cluster yang sama** (mengukur kompaktness)
+- $b_i$ = rata-rata jarak objek $i$ ke semua objek pada **cluster terdekat lainnya** (mengukur separasi)
+
+**Panduan interpretasi nilai silhouette:**
+
+| Rentang Nilai | Interpretasi |
+|---|---|
+| 0.71 – 1.00 | Struktur cluster sangat kuat |
+| 0.51 – 0.70 | Struktur cluster cukup kuat |
+| 0.26 – 0.50 | Struktur cluster lemah, bisa juga artifisial |
+| < 0.26 | Tidak ada struktur yang berarti |
+
+---
+
+## Silhouette Width – K-Means
+
+```{r sil-kmeans}
+dist_data <- dist(data_scaled)
+
+sil_km <- silhouette(km_result$cluster, dist_data)
+avg_sil_km <- mean(sil_km[, 3])
+cat("Rata-rata Silhouette Width (K-Means):", round(avg_sil_km, 4), "\n")
+
+fviz_silhouette(sil_km,
+                palette = c("#E74C3C", "#2ECC71", "#3498DB"),
+                ggtheme = theme_bw()) +
+  labs(title = "Silhouette Plot – K-Means Clustering")
+```
+
+**Interpretasi Silhouette Plot K-Means:**
+
+Plot silhouette menampilkan nilai $s(i)$ untuk setiap observasi, dikelompokkan per cluster. Garis putus-putus vertikal menunjukkan rata-rata keseluruhan (*average silhouette width*).
+
+- **Batang yang panjang ke kanan** (mendekati 1): observasi tersebut tergabung dalam cluster yang tepat dan jauh dari cluster lain pengelompokan sangat baik.
+- **Batang yang pendek** (mendekati 0): observasi berada di perbatasan antara dua cluster.
+- **Batang negatif** (ke kiri): observasi kemungkinan salah ditempatkan dan lebih cocok masuk ke cluster lain.
+
+Perhatikan cluster mana yang memiliki rata-rata silhouette paling tinggi dan paling rendah. Cluster dengan banyak batang negatif menunjukkan bahwa batas cluster di area tersebut tidak tegas.
+
+---
+
+## Silhouette Width – Model-Based
+
+```{r sil-mclust}
+sil_gm <- silhouette(gmm_result$classification, dist_data)
+avg_sil_gm <- mean(sil_gm[, 3])
+cat("Rata-rata Silhouette Width (Model-Based):", round(avg_sil_gm, 4), "\n")
+
+fviz_silhouette(sil_gm,
+                palette = c("#E74C3C", "#2ECC71", "#3498DB"),
+                ggtheme = theme_bw()) +
+  labs(title = "Silhouette Plot – Model-Based Clustering")
+```
+
+**Interpretasi Silhouette Plot Model-Based:**
+
+Berdasarkan hasil yang diperoleh, nilai rata-rata Silhouette Width secara keseluruhan untuk Model-Based Clustering adalah sebesar 0,30 (merupakan rata-rata tertimbang dari ketiga cluster). Jika dilihat lebih rinci pada masing-masing cluster, terdapat perbedaan kualitas yang cukup signifikan yaitu : 
+
+- Cluster 3 (39 observasi, rata-rata = 0,65) menunjukkan kualitas terbaik, di mana hampir seluruh nilai silhouette berada jauh di atas nol dan melampaui garis rata-rata. Hal ini mengindikasikan bahwa anggota dalam cluster ini sangat homogen serta memiliki pemisahan yang jelas dari cluster lainnya.
+
+- Cluster 2 (75 observasi, rata-rata = 0,26) memiliki kualitas yang relatif rendah. Sebagian besar nilai silhouette berada di sekitar nol dan di bawah rata-rata, yang menunjukkan bahwa banyak observasi berada di area batas antar cluster, sehingga pemisahannya kurang jelas.
+
+- Cluster 1 (85 observasi, rata-rata = 0,01) merupakan cluster dengan kualitas terendah. Terdapat cukup banyak nilai silhouette yang negatif hingga mendekati -0,8, yang menandakan bahwa sejumlah observasi kemungkinan tidak berada pada cluster yang tepat dan lebih sesuai jika dimasukkan ke cluster lain.
+
+Secara keseluruhan, hasil Model-Based Clustering pada data ini menunjukkan bahwa struktur cluster yang terbentuk belum merata. Meskipun cluster 3 terbentuk dengan sangat baik, cluster 1 dan cluster 2 masih memiliki batas pemisahan yang kurang tegas.
+
+---
+
+## Perbandingan Hasil Validasi
+
+```{r perbandingan}
+hasil <- data.frame(
+  Metode         = c("K-Means", "Model-Based (Mclust)"),
+  Avg_Silhouette = round(c(avg_sil_km, avg_sil_gm), 4)
+)
+
+knitr::kable(hasil,
+             caption = "Perbandingan Silhouette Width Antar Metode",
+             col.names = c("Metode Clustering", "Rata-rata Silhouette Width"),
+             align = "lc")
+```
+
+**Interpretasi:**
+
+Berdasarkan perbandingan nilai rata-rata Silhouette Width, diketahui bahwa metode K-Means memperoleh nilai sebesar 0,3761, sedangkan metode Model-Based Clustering (Mclust) memiliki nilai yang lebih rendah, yaitu 0,2286.
+
+Hasil ini menunjukkan bahwa K-Means mampu membentuk cluster yang lebih baik dibandingkan dengan Model-Based Clustering pada dataset yang digunakan. Nilai Silhouette Width yang lebih tinggi menandakan bahwa anggota dalam cluster lebih homogen dan memiliki pemisahan yang lebih jelas dengan cluster lainnya.
+
+Oleh karena itu, dapat disimpulkan bahwa metode K-Means menghasilkan pengelompokan yang lebih optimal dibandingkan metode Model-Based (Mclust) pada kasus ini.
+
+---
+
+# Kesimpulan
+
+```{r kesimpulan, echo=FALSE}
+best     <- ifelse(avg_sil_km > avg_sil_gm, "K-Means", "Model-Based (Mclust)")
+best_val <- max(avg_sil_km, avg_sil_gm)
+worst    <- ifelse(avg_sil_km < avg_sil_gm, "K-Means", "Model-Based (Mclust)")
+worst_val <- min(avg_sil_km, avg_sil_gm)
+```
+
+Berdasarkan analisis yang telah dilakukan, dapat diambil beberapa kesimpulan:
+
+1. **Penentuan jumlah cluster**: Elbow Method menunjukkan bahwa **k = 3** merupakan jumlah cluster yang optimal untuk dataset Seoul Bike Sharing ini, di mana penurunan WSS mulai melambat secara signifikan setelah titik tersebut.
+
+2. **Perbandingan metode**: Kedua metode K-Means dan Model-Based (Mclust) berhasil membagi 199 observasi ke dalam 3 cluster. Namun, terdapat perbedaan dalam distribusi anggota cluster dan pola pemisahan yang dihasilkan, karena keduanya menggunakan pendekatan yang berbeda secara fundamental.
+
+3. **Validasi internal**: Menggunakan Silhouette Width sebagai kriteria internal, metode **`r best`** menghasilkan cluster yang lebih berkualitas dengan nilai rata-rata silhouette **`r round(best_val, 4)`**, dibandingkan **`r worst`** dengan nilai **`r round(worst_val, 4)`**. Berdasarkan panduan interpretasi, nilai ini mengindikasikan kekuatan struktur cluster yang terbentuk.
+
+4. **Rekomendasi**: Metode **`r best`** lebih direkomendasikan untuk data ini karena menghasilkan cluster yang lebih kompak dan lebih terpisah satu sama lain, sesuai dengan kriteria internal yang digunakan.
+
+---
